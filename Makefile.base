@@ -1,0 +1,194 @@
+# A Makefile "Build System".
+# Version 1.5 (June 9, 2005)
+# Justin Bradford (jabradford@gmail.com)
+
+# This file is intended to be included after your project
+# specific configuration, which would look something like this:
+
+#     ************************************************************     #
+#     # general defines and flags that apply to all targets.
+#
+#     DEFINES=
+#     INCLUDES=-I../db
+#     LIBS=-L../db -lbdb
+#     FLAGS=-g
+#
+#     EXE_TARGETS=bar
+#     LIB_TARGETS=libfoo.a
+#
+#     # specify sources for each target (and optional, target specific 
+#     # library flags, include flags, generic flags, defines, and 
+#     # additional make dependencies), with upper-cased target name as 
+#     # prefix to _SRCS (and _LIBS, _INCLUDES, _DEFINES, _FLAGS, _DEPS)
+#
+#     BAR_SRCS=main.c misc.c
+#     BAR_LIBS=
+#     BAR_INCLUDES=
+#     BAR_DEFINES=
+#     BAR_FLAGS=
+#     BAR_DEPS=
+#
+#     LIB_FOO_A_SRCS=mem.c list.c
+#     LIB_FOO_A_INCLUDES=
+#     LIB_FOO_A_DEFINES=
+#     LIB_FOO_A_FLAGS=
+#     LIB_FOO_A_DEPS=
+#
+#     # you can also configure an install rule
+#     PREFIX=/usr/local
+#     INSTALL_HEADERS=mem.h list.h
+#     # to avoid conflicts, install the headers in /usr/local/include/foo/
+#     INSTALL_HEADERS_SUBDIR=foo 
+#     INSTALL_LIBS=${LIB_TARGETS}
+#     INSTALL_EXES=${EXE_TARGETS}
+#
+#     include Makefile.base
+#     ************************************************************     #
+
+# and now for the actual Makefile.base code
+# ------ OBSCURE MAKEFILE NONSENSE BEGINS HERE ------ #
+
+# none of the following should need to be modified.
+# the rest of the file is just ugly makefile "scripting"
+# to make compilation, installation, linking, dependencies
+#  and so on work nicely and automatically now.
+
+TARGETS=${LIB_TARGETS} ${EXE_TARGETS}
+
+all: ${TARGETS}
+
+.PHONY: all clean dep depend
+
+# there isn't a built-in "to upper case" function in make...
+upper=${subst a,A,${subst b,B,${subst c,C,${subst d,D,${subst e,E,${subst\
+f,F,${subst g,G,${subst h,H,${subst i,I,${subst j,J,${subst k,K,${subst\
+l,L,${subst m,M,${subst n,N,${subst o,O,${subst p,P,${subst q,Q,${subst\
+r,R,${subst s,S,${subst t,T,${subst u,U,${subst v,V,${subst w,W,${subst\
+x,X,${subst y,Y,${subst z,Z,${1}}}}}}}}}}}}}}}}}}}}}}}}}}}
+
+# this replaces some common characters which aren't appropriate for
+# variable names, and then uppercases the string
+varname=${subst /,_,${subst -,_,${subst .,_,${call upper,${1}}}}}
+
+# these are the link rules for targets. the dependencies of each
+# target are automatically generated from the specified source list 
+# and stored in the Makefile.dep
+${EXE_TARGETS}:
+	${LINK.o} ${${call varname,$@}_FLAGS} ${FLAGS} $^ \
+		${${call varname,$@}_LIBS} ${LIBS} -o $@
+${LIB_TARGETS}:
+	${AR} ur $@ $^
+
+# clean the directory structure up
+clean:
+	find . -name "*.o" -exec ${RM} {} \;
+	find . -name "*~" -exec ${RM} {} \;
+	find . -name "a.out" -exec ${RM} {} \;
+	find . -name "core" -exec ${RM} {} \;
+	${RM} ${TARGETS} Makefile.dep
+
+# install headers, libraries, and/or binaries
+install: ${INSTALL_HEADERS} ${INSTALL_LIBS} ${INSTALL_EXES}
+ifeq (${strip ${PREFIX}},)
+	echo "The variable PREFIX has not been set."
+else
+ifneq (${strip ${INSTALL_HEADERS}},)
+	mkdir -p ${PREFIX}/include/${INSTALL_HEADERS_SUBDIR}
+	install ${INSTALL_HEADERS} ${PREFIX}/include/${INSTALL_HEADERS_SUBDIR}
+endif
+ifneq (${strip ${INSTALL_LIBS}},)
+	mkdir -p ${PREFIX}/lib
+	${if ${strip ${INSTALL_LIBS}}, install ${INSTALL_LIBS} ${PREFIX}/lib}
+endif
+ifneq (${strip ${INSTALL_EXES}},)
+	mkdir -p ${PREFIX}/bin
+	${if ${strip ${INSTALL_EXES}}, install ${INSTALL_EXES} ${PREFIX}/bin}
+endif
+endif
+
+# this gets a list of all the sources for all of the targets.
+# we need to make our Makefile.dep dependent on all of these,
+# so it will regenerate when sources change.
+ALL_SRCS=${foreach tg,${TARGETS},${${call varname,${tg}}_SRCS}}
+
+# if we were explicitly asked to build the dependencies, we'll
+# force it to regenerated, whether Makefile.dep is newer or not.
+ifeq (${MAKECMDGOALS},dep)
+.PHONY: Makefile.dep
+endif
+ifeq (${MAKECMDGOALS},depend)
+.PHONY: Makefile.dep
+endif
+ifeq (${MAKECMDGOALS},Makefile.dep)
+.PHONY: Makefile.dep
+endif
+
+# this generates the link dependencies for each target, but
+# transforming the source list to a list of corresponding objects
+rep4=${1:.cxx=.o}
+rep3=${call rep4,${1:.cpp=.o}}
+rep2=${call rep3,${1:.cc=.o}}
+rep1=${call rep2,${1:.c=.o}}
+targetdep=echo "${tg}: ${call rep1,${${call varname,${tg}}_SRCS}} \
+${${call varname,${tg}}_DEPS}" >> Makefile.dep;
+
+# this gets all of the extra target specific _FLAGS, _INCLUDES, 
+# _DEFINES for a particular source
+deptargetextra=${foreach tg,${TARGETS},\
+	${if ${findstring ${1},${${call varname,${tg}}_SRCS}},\
+	\$${${call varname,${tg}}_FLAGS}\
+	\$${${call varname,${tg}}_INCLUDES}\
+	\$${${call varname,${tg}}_DEFINES}}}
+
+# a version of the above to give the preprocessor (not escaped
+# as we want them expanded now) and without the flags options
+deptargetextracpp=${foreach tg,${TARGETS},\
+	${if ${findstring ${1},${${call varname,${tg}}_SRCS}},\
+	${${call varname,${tg}}_INCLUDES}\
+	${${call varname,${tg}}_DEFINES}}}
+
+# runs the preprocessor, chops the output with sed (as some preprocessors
+# throw in some extra garbage), to give the rule for this source
+depcmd=${CPP} ${call deptargetextracpp,${df}} ${INCLUDES} ${DEFINES} -M ${df} \
+| sed 's:^.*\.o\::${call rep1,${df}}\::' >> Makefile.dep
+
+# calls the above for the rule, and then writes the c compiler action line
+depcmdcc=${depcmd}; \
+echo "	\$${CC} ${call deptargetextra,${df}} \$${FLAGS} \$${INCLUDES} \
+\$${DEFINES} -c ${df} -o ${call rep1,${df}}" >> Makefile.dep;
+
+# same as above but for the c++ complier
+depcmdcxx=${depcmd}; \
+echo "	\$${CXX} \$${FLAGS} ${call deptargetextra,${df}} \$${INCLUDES} \
+\$${DEFINES} -c ${df} -o ${call rep1,${df}}" >> Makefile.dep;
+
+# generate the dependencies. pretty much just goes through the
+# list of targets and sources and runs the appropriate dependency 
+# generating command up above.
+dep depend: Makefile.dep
+Makefile.dep: ${ALL_SRCS} Makefile
+	echo "# autogenerated" > Makefile.dep
+	${foreach tg,${TARGETS},${targetdep}}
+	${foreach df,${filter %.c,$^},${depcmdcc}}
+	${foreach df,${filter %.cc,$^},${depcmdcxx}}
+	${foreach df,${filter %.cpp,$^},${depcmdcxx}}
+	${foreach df,${filter %.cxx,$^},${depcmdcxx}}
+
+
+
+# if we are cleaning, or rebuilding the dependencies, do not include
+# the file. sometimes errors in the source files can cause a corrupt
+# Makefile.dep to be built. then trying to run make gives an error.
+# now we can say "make dep" and it will regenerate without trippping
+# up on errors. IDEALLY, there would be some way to automatically
+# recognize a corrupt dependencies file and just remove it, but alas,
+# i haven't figured out how to make this do that.
+ifneq (${MAKECMDGOALS},clean)
+ifneq (${MAKECMDGOALS},dep)
+ifneq (${MAKECMDGOALS},depend)
+ifneq (${MAKECMDGOALS},Makefile.dep)
+include Makefile.dep
+endif
+endif
+endif
+endif
